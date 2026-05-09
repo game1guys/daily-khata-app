@@ -348,7 +348,7 @@ export default function AddTransactionScreen({ navigation, route }: Props) {
             if (existingParties.length >= 3 && !existingParties.find((p: any) => p.name === partyDisplayName.trim())) {
               showAlert({ 
                 title: 'Limit Reached', 
-                message: 'Free plan is limited to 3 parties. Please upgrade for unlimited Hisab Khata.', 
+                message: 'Free plan is limited to 3 parties. Please upgrade for unlimited Party Ledger access.', 
                 type: 'error' 
               });
               setSaving(false);
@@ -512,7 +512,7 @@ export default function AddTransactionScreen({ navigation, route }: Props) {
     if (showHisabKhataSection && !partyId && !partyDisplayName.trim()) {
       showAlert({
         title: 'Party required',
-        message: 'Choose or create a party before recording Hisab Khata.',
+        message: 'Choose or create a party before recording a ledger entry.',
         type: 'warning'
       });
       return;
@@ -890,7 +890,7 @@ export default function AddTransactionScreen({ navigation, route }: Props) {
 
             {showHisabKhataSection ? (
               <View style={styles.udharBlock}>
-                <Text style={styles.metaLabel}>Hisab khata (optional)</Text>
+                <Text style={styles.metaLabel}>Party ledger (optional)</Text>
                 <Text style={styles.udharHint}>
                   Given = I lent · Taken = I borrowed. Saved to your party ledger after the main entry.
                 </Text>

@@ -1,6 +1,13 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Firebase (FCM) requires google-services.json. Don't hard-fail builds if it's not present yet.
+def googleServicesFile = file("google-services.json")
+if (googleServicesFile.exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    println("[Daily-KHATA] google-services.json missing → Firebase disabled for this build.")
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -25,7 +32,18 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    // Gradle daemons sometimes don't inherit your shell PATH, which can make `node` “not found”.
+    // Prefer an absolute Node path if present (Homebrew), else fall back to env.
+    def nodeBin = null
+    def candidates = [
+        "/opt/homebrew/bin/node",  // Apple Silicon Homebrew
+        "/usr/local/bin/node",     // Intel Homebrew
+        "/usr/bin/node"            // system (rare)
+    ]
+    for (p in candidates) {
+        if (file(p).exists()) { nodeBin = p; break }
+    }
+    nodeExecutableAndArgs = nodeBin != null ? [nodeBin] : ["/usr/bin/env", "node"]
     //
     //   The command to run when bundling. By default is 'bundle'
     // bundleCommand = "ram-bundle"

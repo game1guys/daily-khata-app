@@ -2,18 +2,12 @@ import React, { useCallback, useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
-  RefreshControl,
   Platform,
   Modal,
   TextInput,
-  KeyboardAvoidingView,
-  Switch,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useFocusEffect } from '@react-navigation/native';
@@ -21,7 +15,7 @@ import type { CompositeScreenProps } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import axios from 'axios';
-import { LogOut, User, Mail, Phone, Crown, ChevronRight, Edit2, X, Check, Lock, Bell, Clock } from 'lucide-react-native';
+import { User, Mail, Phone, X, Check } from 'lucide-react-native';
 import type { MainTabParamList, RootStackParamList } from '../../App';
 import { theme } from '../theme/colors';
 import { API_URL } from '../config/api';
@@ -34,42 +28,17 @@ import {
   saveReminderPrefs,
   syncDailyExpenseReminder,
   openAlarmSettingsIfNeeded,
-  sendTestNotificationNow,
+  isBatteryOptimizationIssue,
   type DailyReminderPrefs,
 } from '../reminders/dailyExpenseReminder';
+import ProfileScrollBody from './ProfileScrollBody';
+import { profileScreenStyles as styles } from './profileScreenStyles';
+import { ModalKeyboardRoot } from '../components/KeyboardSafeViews';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<MainTabParamList, 'Me'>,
   NativeStackScreenProps<RootStackParamList>
 >;
-
-const TIER_LABELS: Record<string, string> = {
-  free: 'Free',
-  premium_mon: 'Premium (Monthly)',
-  premium_yr: 'Premium (Yearly)',
-  premium_life: 'Premium (Lifetime)',
-};
-
-function tierLabel(tier: string) {
-  return TIER_LABELS[tier] ?? tier;
-}
-
-function formatEndDate(iso: string | null | undefined) {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  } catch {
-    return iso;
-  }
-}
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'U';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 export default function ProfileScreen({ navigation }: Props) {
   const { showAlert } = useAlert();
@@ -92,10 +61,9 @@ export default function ProfileScreen({ navigation }: Props) {
   const [reminderHour, setReminderHour] = useState(19);
   const [reminderMinute, setReminderMinute] = useState(0);
   const [reminderMessage, setReminderMessage] = useState('');
-  const [showTimePicker, setShowTimePicker] = useState(false);
   const [reminderPrefsLoaded, setReminderPrefsLoaded] = useState(false);
   const [reminderScheduleInfo, setReminderScheduleInfo] = useState<string | null>(null);
-  const [testNotifLoading, setTestNotifLoading] = useState(false);
+  const [showBatteryWarn, setShowBatteryWarn] = useState(false);
 
   const formatReminderTime = (h: number, m: number) => {
     const d = new Date();
@@ -109,14 +77,15 @@ export default function ProfileScreen({ navigation }: Props) {
     setReminderHour(prefs.hour);
     setReminderMinute(prefs.minute);
     setReminderMessage(prefs.message);
-    const r = await syncDailyExpenseReminder();
+    const r = await syncDailyExpenseReminder(prefs);
     if (!r.ok && r.reason === 'notification_permission') {
       await saveReminderPrefs({ ...prefs, enabled: false });
       setReminderEnabled(false);
       setReminderScheduleInfo(null);
       showAlert({
         title: 'Notifications off',
-        message: 'Allow notifications for Daily Khata so the daily reminder can appear.',
+        message:
+          'Daily Khata notifications are OFF. Go to Settings → Apps → Daily Khata → Notifications, turn it ON (and enable the channel), then try again.',
         type: 'warning',
       });
       return;
@@ -130,16 +99,34 @@ export default function ProfileScreen({ navigation }: Props) {
       });
       return;
     }
+    if (!r.ok && r.reason === 'alarm_permission') {
+      setReminderScheduleInfo(null);
+      showAlert({
+        title: 'Exact alarms required',
+        message: 'Go to Settings → Apps → Daily Khata → Alarms & reminders → Allow, then toggle the reminder OFF and ON again.',
+        type: 'warning',
+        buttons: [
+          { text: 'Open settings', onPress: () => openAlarmSettingsIfNeeded() },
+          { text: 'OK', style: 'cancel' },
+        ],
+      });
+      return;
+    }
     if (r.ok && prefs.enabled && 'nextFireLabel' in r && r.nextFireLabel) {
       const exactHint =
         Platform.OS === 'android' && r.usedExactAlarm === false
-          ? ' — bilkul fix time ke liye Settings → Apps → Daily Khata → Alarms & reminders → Allow.'
+          ? ' — for exact timing: Settings → Apps → Daily Khata → Alarms & reminders → Allow.'
           : '';
-      setReminderScheduleInfo(`Pehli reminder: ${r.nextFireLabel}${exactHint}`);
+      setReminderScheduleInfo(`Scheduled: ${r.nextFireLabel}${exactHint}`);
+      // Battery optimization check — common culprit on Xiaomi/Samsung/OnePlus etc.
+      isBatteryOptimizationIssue().then(setShowBatteryWarn).catch(() => {});
     } else {
       setReminderScheduleInfo(null);
+      setShowBatteryWarn(false);
     }
   };
+
+
 
   useEffect(() => {
     AsyncStorage.getItem('app_lock_enabled').then(val => {
@@ -252,7 +239,28 @@ export default function ProfileScreen({ navigation }: Props) {
       if (!reminderPrefsLoaded) return;
       (async () => {
         const p = await loadReminderPrefs();
-        if (p.enabled) await syncDailyExpenseReminder();
+        if (p.enabled) {
+          const r = await syncDailyExpenseReminder();
+          if (!r.ok && r.reason === 'alarm_permission') {
+            showAlert({
+              title: 'Exact alarms required',
+              message:
+                'Go to Settings → Apps → Daily Khata → Alarms & reminders → Allow, then toggle the reminder OFF and ON again.',
+              type: 'warning',
+              buttons: [
+                { text: 'Open settings', onPress: () => openAlarmSettingsIfNeeded() },
+                { text: 'OK', style: 'cancel' },
+              ],
+            });
+          }
+          if (!r.ok && r.reason === 'notification_permission') {
+            showAlert({
+              title: 'Notifications off',
+              message: 'Please turn ON Daily Khata notifications and try again.',
+              type: 'warning',
+            });
+          }
+        }
       })();
     }, [reminderPrefsLoaded])
   );
@@ -344,229 +352,33 @@ export default function ProfileScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchMe(true, true)} tintColor={theme.black} />}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.card}>
-          <View style={styles.yellow}>
-            <Text style={styles.screenTitle}>Me</Text>
-            {me && (
-              <TouchableOpacity style={styles.editBtn} onPress={openEditProfile}>
-                <Edit2 size={20} color={theme.black} />
-              </TouchableOpacity>
-            )}
-          </View>
+      <View style={styles.screenFill} collapsable={false}>
+        <ProfileScrollBody
+          refreshing={refreshing}
+          onRefresh={() => fetchMe(true, true)}
+          me={me}
+          loading={loading}
+          tier={tier}
+          appLockEnabled={appLockEnabled}
+          biometricEnabled={biometricEnabled}
+          biometricSupported={biometricSupported}
+          reminderEnabled={reminderEnabled}
+          reminderHour={reminderHour}
+          reminderMinute={reminderMinute}
+          reminderMessage={reminderMessage}
+          reminderScheduleInfo={reminderScheduleInfo}
+          showBatteryWarn={showBatteryWarn}
+          openEditProfile={openEditProfile}
+          openUpgrade={openUpgrade}
+          toggleAppLock={toggleAppLock}
+          toggleBiometric={toggleBiometric}
+          onLogout={onLogout}
+          persistReminderAndSync={persistReminderAndSync}
+          setReminderMessage={setReminderMessage}
+          formatReminderTime={formatReminderTime}
+        />
 
-          {loading && !me ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator color={theme.black} />
-            </View>
-          ) : null}
-
-          {me ? (
-            <>
-              <View style={styles.avatarRow}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarTxt}>{initials(me.user.full_name)}</Text>
-                </View>
-                <View style={styles.avatarMeta}>
-                  <Text style={styles.displayName}>{me.user.full_name}</Text>
-                  <Text style={styles.memberSince}>
-                    Member since {formatEndDate(me.member_since ?? undefined)}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.planBanner}>
-                <View style={styles.planHeaderRow}>
-                  <Crown size={22} color={theme.black} />
-                  <Text style={styles.planTitle}>Your plan</Text>
-                </View>
-                <Text style={styles.planTier}>{tierLabel(tier)}</Text>
-                <Text style={styles.planRenew}>
-                  {tier === 'free'
-                    ? 'Upgrade for full analytics and exports.'
-                    : `Renews / valid until ${formatEndDate(me.subscription.end_date)}`}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.upgradeBannerBtn, tier === 'free' && styles.upgradeBannerBtnFree]}
-                  onPress={openUpgrade}
-                  activeOpacity={0.9}
-                >
-                  {tier === 'free' && <Crown size={18} color={theme.black} />}
-                  <Text style={styles.upgradeBannerBtnTxt}>
-                    {tier === 'free' ? 'Upgrade to Premium' : 'Manage Subscription'}
-                  </Text>
-                  <ChevronRight size={20} color={theme.black} />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.sectionLabel}>Account</Text>
-              <View style={styles.detailRow}>
-                <Mail size={18} color={theme.textMuted} />
-                <View style={styles.detailTextWrap}>
-                  <Text style={styles.detailMuted}>Email</Text>
-                  <Text style={styles.detailValue}>{me.user.email ?? '—'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailRow}>
-                <Phone size={18} color={theme.textMuted} />
-                <View style={styles.detailTextWrap}>
-                  <Text style={styles.detailMuted}>Phone</Text>
-                  <Text style={styles.detailValue}>{me.user.phone ?? '—'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailRow}>
-                <User size={18} color={theme.textMuted} />
-                <View style={styles.detailTextWrap}>
-                  <Text style={styles.detailMuted}>User ID</Text>
-                  <Text style={styles.detailValueMono} numberOfLines={1}>
-                    {me.user.id}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.sectionLabel}>Security</Text>
-              <TouchableOpacity style={styles.detailRow} onPress={toggleAppLock} activeOpacity={0.7}>
-                <Lock size={18} color={theme.textMuted} />
-                <View style={styles.detailTextWrap}>
-                  <Text style={styles.detailMuted}>App Lock (PIN/Fingerprint)</Text>
-                  <Text style={[styles.detailValue, { color: appLockEnabled ? '#10B981' : theme.textMuted }]}>
-                    {appLockEnabled ? 'Enabled' : 'Disabled'}
-                  </Text>
-                </View>
-                <Check size={20} color={appLockEnabled ? '#10B981' : 'transparent'} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.detailRow, !biometricSupported ? { opacity: 0.5 } : null]}
-                onPress={toggleBiometric}
-                activeOpacity={0.7}
-                disabled={!biometricSupported}
-              >
-                <Lock size={18} color={theme.textMuted} />
-                <View style={styles.detailTextWrap}>
-                  <Text style={styles.detailMuted}>Biometric Unlock</Text>
-                  <Text style={[styles.detailValue, { color: biometricEnabled ? '#10B981' : theme.textMuted }]}>
-                    {biometricSupported ? (biometricEnabled ? 'Enabled' : 'Disabled') : 'Not supported'}
-                  </Text>
-                </View>
-                <Check size={20} color={biometricEnabled ? '#10B981' : 'transparent'} />
-              </TouchableOpacity>
-
-              <Text style={styles.sectionLabel}>Reminders</Text>
-              <View style={styles.reminderCard}>
-                <View style={styles.reminderTopRow}>
-                  <Bell size={18} color={theme.textMuted} />
-                  <View style={styles.reminderTextWrap}>
-                    <Text style={styles.detailMuted}>Daily expense reminder</Text>
-                    <Text style={styles.reminderHint}>
-                      Roz isi samay notification. Agar aaj ka time nikal gaya ho to pehli alert kal aayegi — neeche time dikhega.
-                    </Text>
-                  </View>
-                  <Switch
-                    value={reminderEnabled}
-                    onValueChange={(v) =>
-                      persistReminderAndSync({
-                        enabled: v,
-                        hour: reminderHour,
-                        minute: reminderMinute,
-                        message: reminderMessage.trim() || 'Ab apne expenses add karein.',
-                      })
-                    }
-                    trackColor={{ false: theme.border, true: '#fde047' }}
-                    thumbColor={theme.white}
-                  />
-                </View>
-                {reminderEnabled ? (
-                  <>
-                    <TouchableOpacity
-                      style={styles.reminderTimeRow}
-                      onPress={() => setShowTimePicker(true)}
-                      activeOpacity={0.75}
-                    >
-                      <Clock size={18} color={theme.textMuted} />
-                      <View style={styles.reminderTextWrap}>
-                        <Text style={styles.detailMuted}>Samay</Text>
-                        <Text style={styles.detailValue}>{formatReminderTime(reminderHour, reminderMinute)}</Text>
-                      </View>
-                      <ChevronRight size={20} color={theme.textMuted} />
-                    </TouchableOpacity>
-                    <View style={styles.reminderMessageBox}>
-                      <Text style={styles.detailMuted}>Reminder ka text</Text>
-                      <TextInput
-                        style={styles.reminderTextInput}
-                        value={reminderMessage}
-                        onChangeText={setReminderMessage}
-                        onEndEditing={(e) =>
-                          persistReminderAndSync({
-                            enabled: reminderEnabled,
-                            hour: reminderHour,
-                            minute: reminderMinute,
-                            message: e.nativeEvent.text.trim() || 'Ab apne expenses add karein.',
-                          })
-                        }
-                        placeholder="e.g. Ab expenses add karo"
-                        placeholderTextColor={theme.textMuted}
-                        multiline
-                        maxLength={200}
-                      />
-                    </View>
-                    <TouchableOpacity
-                      style={styles.reminderTestBtn}
-                      disabled={testNotifLoading}
-                      onPress={async () => {
-                        try {
-                          setTestNotifLoading(true);
-                          const tr = await sendTestNotificationNow();
-                          if (tr.ok) {
-                            showAlert({
-                              title: 'Test bheja',
-                              message:
-                                'Abhi ek notification aani chahiye. Nahi aaya? App info → Notifications ON, battery unrestricted.',
-                              type: 'success',
-                            });
-                          } else {
-                            showAlert({
-                              title: 'Test fail',
-                              message: 'Notification permission check karo.',
-                              type: 'error',
-                            });
-                          }
-                        } finally {
-                          setTestNotifLoading(false);
-                        }
-                      }}
-                    >
-                      {testNotifLoading ? (
-                        <ActivityIndicator size="small" color={theme.black} />
-                      ) : (
-                        <Text style={styles.reminderTestBtnTxt}>Abhi test notification bhejo</Text>
-                      )}
-                    </TouchableOpacity>
-                  </>
-                ) : null}
-              </View>
-
-              <TouchableOpacity style={styles.upgradeOutline} onPress={openUpgrade} activeOpacity={0.9}>
-                <Crown size={20} color={theme.black} />
-                <Text style={styles.upgradeOutlineTxt}>Plans & payment</Text>
-                <ChevronRight size={20} color={theme.textMuted} />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.outBtn} onPress={onLogout} activeOpacity={0.9}>
-                <LogOut size={20} color={theme.black} />
-                <Text style={styles.outTxt}>Sign out</Text>
-              </TouchableOpacity>
-            </>
-          ) : !loading ? (
-            <Text style={styles.fallback}>Could not load profile. Pull to refresh.</Text>
-          ) : null}
-        </View>
-      </ScrollView>
+      </View>
 
       {/* Edit Profile Modal */}
       <Modal
@@ -575,10 +387,7 @@ export default function ProfileScreen({ navigation }: Props) {
         transparent={true}
         onRequestClose={() => setIsEditModalVisible(false)}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
-        >
+        <ModalKeyboardRoot style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Edit Profile</Text>
@@ -639,263 +448,8 @@ export default function ProfileScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
+        </ModalKeyboardRoot>
       </Modal>
-
-      {Platform.OS === 'ios' ? (
-        <Modal visible={showTimePicker} transparent animationType="fade" onRequestClose={() => setShowTimePicker(false)}>
-          <TouchableOpacity
-            style={styles.timeModalBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowTimePicker(false)}
-          >
-            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.timeModalSheet}>
-                <DateTimePicker
-                  value={new Date(new Date().setHours(reminderHour, reminderMinute, 0, 0))}
-                  mode="time"
-                  display="spinner"
-                  onChange={(_, date) => {
-                    if (date) {
-                      void persistReminderAndSync({
-                        enabled: reminderEnabled,
-                        hour: date.getHours(),
-                        minute: date.getMinutes(),
-                        message: reminderMessage.trim() || 'Ab apne expenses add karein.',
-                      });
-                    }
-                  }}
-                />
-                <TouchableOpacity style={styles.timeModalDone} onPress={() => setShowTimePicker(false)}>
-                  <Text style={styles.timeModalDoneTxt}>Done</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
-      ) : showTimePicker ? (
-        <DateTimePicker
-          value={new Date(new Date().setHours(reminderHour, reminderMinute, 0, 0))}
-          mode="time"
-          display="default"
-          onChange={(event, date) => {
-            setShowTimePicker(false);
-            if (event.type === 'dismissed' || !date) return;
-            void persistReminderAndSync({
-              enabled: reminderEnabled,
-              hour: date.getHours(),
-              minute: date.getMinutes(),
-              message: reminderMessage.trim() || 'Ab apne expenses add karein.',
-            });
-          }}
-        />
-      ) : null}
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.yellow },
-  scroll: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 32 },
-  card: { borderRadius: 20, overflow: 'hidden', backgroundColor: theme.white, minHeight: 400 },
-  yellow: { backgroundColor: theme.yellow, paddingVertical: 18, alignItems: 'center', position: 'relative' },
-  screenTitle: { fontSize: 18, fontWeight: '800', color: theme.black },
-  editBtn: { position: 'absolute', right: 16, top: 18, padding: 4 },
-  loadingBox: { padding: 40, alignItems: 'center' },
-  avatarRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, gap: 16 },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: theme.yellow,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarTxt: { fontSize: 22, fontWeight: '900', color: theme.black },
-  avatarMeta: { flex: 1 },
-  displayName: { fontSize: 22, fontWeight: '900', color: theme.text },
-  memberSince: { fontSize: 13, color: theme.textMuted, fontWeight: '600', marginTop: 4 },
-  planBanner: {
-    marginHorizontal: 16,
-    marginTop: 20,
-    padding: 16,
-    backgroundColor: theme.offWhite,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  planHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  planTitle: { fontSize: 14, fontWeight: '800', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-  planTier: { fontSize: 20, fontWeight: '900', color: theme.text, marginTop: 6 },
-  planRenew: { fontSize: 14, color: theme.textMuted, marginTop: 6, fontWeight: '600', lineHeight: 20 },
-  upgradeBannerBtn: {
-    marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: theme.yellow,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-  },
-  upgradeBannerBtnFree: {
-    borderColor: theme.black,
-    shadowColor: theme.black,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  upgradeBannerBtnTxt: { fontSize: 15, fontWeight: '800', color: theme.black },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: theme.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 24,
-    marginBottom: 10,
-    marginHorizontal: 20,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-  },
-  detailTextWrap: { flex: 1 },
-  detailMuted: { fontSize: 12, fontWeight: '700', color: theme.textMuted, marginBottom: 2 },
-  detailValue: { fontSize: 16, fontWeight: '700', color: theme.text },
-  detailValueMono: { fontSize: 12, fontWeight: '600', color: theme.text, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }) },
-  upgradeOutline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginHorizontal: 16,
-    marginTop: 20,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: theme.black,
-    backgroundColor: theme.white,
-  },
-  upgradeOutlineTxt: { flex: 1, fontSize: 16, fontWeight: '800', color: theme.black },
-  outBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    marginHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 24,
-    backgroundColor: theme.yellow,
-    paddingVertical: 14,
-    borderRadius: 14,
-  },
-  outTxt: { fontSize: 16, fontWeight: '800', color: theme.black },
-  fallback: { padding: 24, textAlign: 'center', color: theme.textMuted, fontWeight: '600' },
-  // Modal Styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: theme.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  modalTitle: { fontSize: 20, fontWeight: '900', color: theme.black },
-  modalBody: { gap: 20 },
-  inputGroup: { gap: 8 },
-  inputLabel: { fontSize: 13, fontWeight: '800', color: theme.textMuted, textTransform: 'uppercase', marginLeft: 4 },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: theme.offWhite,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  input: { flex: 1, paddingVertical: 14, fontSize: 16, fontWeight: '700', color: theme.text },
-  infoBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f1f5f9', padding: 12, borderRadius: 12 },
-  infoText: { fontSize: 13, fontWeight: '600', color: theme.textMuted },
-  saveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: theme.yellow,
-    paddingVertical: 16,
-    borderRadius: 16,
-    marginTop: 10,
-  },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnTxt: { fontSize: 16, fontWeight: '900', color: theme.black },
-  reminderCard: {
-    marginHorizontal: 16,
-    marginTop: 4,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.offWhite,
-    gap: 12,
-  },
-  reminderTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  reminderTimeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-  },
-  reminderTextWrap: { flex: 1 },
-  reminderHint: { fontSize: 12, color: theme.textMuted, fontWeight: '600', marginTop: 4 },
-  reminderMessageBox: { gap: 8 },
-  reminderScheduleInfo: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.textMuted,
-    lineHeight: 18,
-  },
-  reminderTestBtn: {
-    marginTop: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.black,
-    backgroundColor: theme.white,
-    alignItems: 'center',
-  },
-  reminderTestBtnTxt: { fontSize: 14, fontWeight: '800', color: theme.black },
-  reminderLinkBtn: { paddingVertical: 8, alignItems: 'center' },
-  reminderLinkTxt: { fontSize: 12, fontWeight: '700', color: '#2563EB', textDecorationLine: 'underline' },
-  reminderTextInput: {
-    minHeight: 72,
-    textAlignVertical: 'top',
-    backgroundColor: theme.white,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    padding: 12,
-    fontSize: 15,
-    fontWeight: '600',
-    color: theme.text,
-  },
-  timeModalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end',
-  },
-  timeModalSheet: {
-    backgroundColor: theme.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 28,
-  },
-  timeModalDone: { alignItems: 'center', paddingVertical: 14 },
-  timeModalDoneTxt: { fontSize: 17, fontWeight: '800', color: theme.black },
-});

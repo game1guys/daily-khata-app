@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Mail, Lock, ArrowRight } from 'lucide-react-native';
+import { Mail, Lock, ArrowRight, HelpCircle } from 'lucide-react-native';
 import { API_URL } from '../config/api';
 import { cacheMeFromLoginSession } from '../utils/profileCache';
 import { configureGoogleSignIn, getGoogleIdToken, isGoogleSignInCancelled } from '../auth/googleSignIn';
 import { setBiometricSessionToken } from '../auth/biometric';
 import { ensureFcmToken, registerFcmRefreshListener } from '../notifications/fcm';
+import { AuthFormScroll } from '../components/KeyboardSafeViews';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -121,17 +122,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        style={{ flex: 1 }}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-
+      <AuthFormScroll contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
             <Image source={require('../../assets/logo.png')} style={styles.topLogo} resizeMode="contain" />
             <Text style={styles.subtitle}>Welcome back to the Vault.</Text>
@@ -169,6 +160,15 @@ export default function LoginScreen({ navigation }: Props) {
               />
             </View>
 
+            <TouchableOpacity
+              style={styles.forgotBtn}
+              onPress={() => navigation.navigate('ForgotPassword')}
+              activeOpacity={0.7}
+            >
+              <HelpCircle size={16} color="#64748b" />
+              <Text style={styles.forgotTxt}>Forgot password?</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
               {loading ? (
                 <ActivityIndicator color="#fff" />
@@ -199,9 +199,7 @@ export default function LoginScreen({ navigation }: Props) {
               <Text style={styles.linkText}>New to Daily-KHATA? <Text style={styles.linkTextBold}>Provision Node</Text></Text>
             </TouchableOpacity>
           </View>
-
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </AuthFormScroll>
     </SafeAreaView>
   );
 }
@@ -213,8 +211,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingTop: 40,
     paddingBottom: 120,
   },
   header: {
@@ -286,6 +284,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0f172a',
     height: '100%',
+  },
+  forgotBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 6,
+    marginTop: -8,
+    marginBottom: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  forgotTxt: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#475569',
   },
   button: {
     backgroundColor: '#0f172a', // Premium deep slate/black

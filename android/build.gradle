@@ -6,6 +6,9 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.1.20"
+        // Avoid native modules invoking `node` just to locate RN in node_modules.
+        // (e.g. react-native-svg calls `commandLine("node", "--print", "require.resolve('react-native/package.json')")`)
+        REACT_NATIVE_NODE_MODULES_DIR = file("$rootDir/../node_modules/react-native").absolutePath
     }
     repositories {
         google()
@@ -15,7 +18,25 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Some RN native modules (e.g. react-native-svg) don't declare compileSdk themselves.
+// Newer Android Gradle Plugin versions require it, so we provide a safe default
+// WITHOUT using afterEvaluate (which can crash with “project already evaluated”).
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        subproject.android {
+            // AGP 8+/9 expects `compileSdk`, some libs still use compileSdkVersion.
+            compileSdk rootProject.ext.compileSdkVersion
+        }
+    }
+    subproject.plugins.withId("com.android.application") {
+        subproject.android {
+            compileSdk rootProject.ext.compileSdkVersion
+        }
+    }
+}

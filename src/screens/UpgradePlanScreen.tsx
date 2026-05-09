@@ -64,7 +64,7 @@ const FEATURES = [
   { name: 'Monthly Summary (Simple)', free: true, premium: true },
   { name: 'Monthly Entries (Max 100)', free: true, premium: true },
   { name: 'Daily Reminder (8:00 PM)', free: true, premium: true },
-  { name: 'Hisab Khata (Max 2-3 Parties)', free: true, premium: true },
+  { name: 'Party Ledger (Max 2-3 Parties)', free: true, premium: true },
   { name: 'Basic Search (Date-wise)', free: true, premium: true },
   { name: 'Advanced Search & Filter', free: false, premium: true, icon: Search },
   { name: 'Category-wise Budgeting', free: false, premium: true, icon: Target },

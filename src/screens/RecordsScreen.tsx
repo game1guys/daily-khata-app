@@ -19,7 +19,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native';
-import { ChevronDown, X, FileText, Calendar as CalendarIcon, AlertTriangle, CheckCircle2, Circle, Plus, MessageCircle } from 'lucide-react-native';
+import { ChevronDown, X, FileText, Calendar as CalendarIcon, AlertTriangle, Circle, Plus, MessageCircle } from 'lucide-react-native';
 import ImageViewer from 'react-native-image-zoom-viewer';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import type { MainTabParamList, RootStackParamList } from '../../App';
@@ -53,7 +53,13 @@ export default function RecordsScreen(_props: Props) {
   const [viewerUrl, setViewerUrl] = useState('');
 
   const [todos, setTodos] = useState<
-    { id: string; title: string; created_at?: string | null; todo_date?: string | null }[]
+    {
+      id: string;
+      title: string;
+      created_at?: string | null;
+      todo_date?: string | null;
+      status?: 'pending' | 'ongoing' | 'done' | null;
+    }[]
   >([]);
   const [newTodoTitle, setNewTodoTitle] = useState('');
   const [todoBusy, setTodoBusy] = useState(false);
@@ -184,17 +190,17 @@ export default function RecordsScreen(_props: Props) {
   const sendHisabWhatsApp = async (name: string, phone: string, balance: number) => {
     const n = normalizePhoneForWhatsApp(phone);
     if (!n) {
-      Alert.alert('Number missing', 'Party profile mein valid mobile number save karein.');
+      Alert.alert('Number missing', 'Please save a valid mobile number in the party profile.');
       return;
     }
-    const msg = `Namaste ${name},\n\nDaily Khata hisaab: aapka bacha ₹${Math.round(balance).toLocaleString('en-IN')} (maine diya − aapne lautaya).\nPlease confirm.\n\n— Daily Khata`;
+    const msg = `Hello ${name},\n\nDaily Khata balance: you owe ₹${Math.round(balance).toLocaleString('en-IN')} (I gave − you returned).\nPlease confirm.\n\n— Daily Khata`;
     const url = `https://wa.me/${n}?text=${encodeURIComponent(msg)}`;
     try {
       const ok = await Linking.canOpenURL(url);
       if (ok) await Linking.openURL(url);
-      else Alert.alert('WhatsApp', 'WhatsApp open nahi ho paya.');
+      else Alert.alert('WhatsApp', 'Could not open WhatsApp.');
     } catch {
-      Alert.alert('WhatsApp', 'Link open nahi ho paya.');
+      Alert.alert('WhatsApp', 'Could not open the link.');
     }
   };
 
@@ -210,6 +216,7 @@ export default function RecordsScreen(_props: Props) {
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -267,7 +274,7 @@ export default function RecordsScreen(_props: Props) {
                   style={[styles.filterChip, listFilter === 'hisab' && styles.filterChipOn]}
                   onPress={() => setListFilter('hisab')}
                 >
-                  <Text style={[styles.filterChipTxt, listFilter === 'hisab' && styles.filterChipTxtOn]}>Hisab Khata</Text>
+                  <Text style={[styles.filterChipTxt, listFilter === 'hisab' && styles.filterChipTxtOn]}>Party Ledger</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.filterChip, listFilter === 'todo' && styles.filterChipOn]}
@@ -304,14 +311,13 @@ export default function RecordsScreen(_props: Props) {
           <View style={styles.sheetWhite}>
             {listFilter === 'hisab' ? (
               <View style={styles.waCard}>
-                <Text style={styles.waTitle}>WhatsApp — hisaab</Text>
+                <Text style={styles.waTitle}>WhatsApp — Balance</Text>
                 <Text style={styles.waHint}>
-                  Jin parties ne aap se udhar liya (unka balance +) — unko message. Party create/edit mein number
-                  zaroor save karein.
+                  Parties with a positive balance (they owe you) — send them a message. Make sure to save a phone number when creating/editing a party.
                 </Text>
                 {udharDebtors.length === 0 ? (
                   <Text style={styles.waEmpty}>
-                    Koi match nahi: ya balance zero / number saved nahi.
+                    No matches: either balance is zero or no number saved.
                   </Text>
                 ) : (
                   udharDebtors.map((d) => (
@@ -320,7 +326,7 @@ export default function RecordsScreen(_props: Props) {
                         <Text style={styles.waName} numberOfLines={1}>
                           {d.name}
                         </Text>
-                        <Text style={styles.waBal}>Bacha: ₹ {d.balance.toLocaleString('en-IN')}</Text>
+                        <Text style={styles.waBal}>Balance: ₹ {d.balance.toLocaleString('en-IN')}</Text>
                       </View>
                       <TouchableOpacity
                         style={styles.waBtn}
@@ -328,7 +334,7 @@ export default function RecordsScreen(_props: Props) {
                         onPress={() => sendHisabWhatsApp(d.name, d.phone, d.balance)}
                       >
                         <MessageCircle size={18} color="#fff" />
-                        <Text style={styles.waBtnTxt}>WA</Text>
+                        <Text style={styles.waBtnTxt}>WhatsApp</Text>
                       </TouchableOpacity>
                     </View>
                   ))
@@ -337,7 +343,7 @@ export default function RecordsScreen(_props: Props) {
             ) : null}
             {listFilter === 'todo' ? (
               <View style={styles.todoWrap}>
-                <Text style={styles.todoHint}>Done pe tap karo — item list se hat jayega.</Text>
+                <Text style={styles.todoHint}>Pending / Ongoing — Done dabate hi item hata diya jayega.</Text>
                 <View style={styles.todoAddRow}>
                   <TextInput
                     style={styles.todoInput}
@@ -345,11 +351,14 @@ export default function RecordsScreen(_props: Props) {
                     placeholderTextColor={theme.textMuted}
                     value={newTodoTitle}
                     onChangeText={setNewTodoTitle}
+                    editable={!todoBusy}
                     onSubmitEditing={async () => {
                       const t = newTodoTitle.trim();
                       if (!t || todoBusy) return;
                       try {
                         setTodoBusy(true);
+                        // Optimistic clear: user ko immediately input blank dikhna chahiye
+                        setNewTodoTitle('');
                         const token = await AsyncStorage.getItem('khata_session');
                         if (!token) return;
                         await axios.post(
@@ -357,7 +366,6 @@ export default function RecordsScreen(_props: Props) {
                           { title: t, todo_date: todoDateYMD },
                           { headers: { Authorization: `Bearer ${token}` } }
                         );
-                        setNewTodoTitle('');
                         await fetchTodos();
                       } catch (e) {
                         console.log(e);
@@ -375,6 +383,7 @@ export default function RecordsScreen(_props: Props) {
                       if (!t || todoBusy) return;
                       try {
                         setTodoBusy(true);
+                        setNewTodoTitle('');
                         const token = await AsyncStorage.getItem('khata_session');
                         if (!token) return;
                         await axios.post(
@@ -382,7 +391,6 @@ export default function RecordsScreen(_props: Props) {
                           { title: t, todo_date: todoDateYMD },
                           { headers: { Authorization: `Bearer ${token}` } }
                         );
-                        setNewTodoTitle('');
                         await fetchTodos();
                       } catch (e) {
                         console.log(e);
@@ -392,33 +400,21 @@ export default function RecordsScreen(_props: Props) {
                       }
                     }}
                   >
-                    <Plus size={22} color={theme.black} />
+                    {todoBusy ? (
+                      <ActivityIndicator size="small" color={theme.black} />
+                    ) : (
+                      <Plus size={22} color={theme.black} />
+                    )}
                   </TouchableOpacity>
                 </View>
                 {todos.length === 0 ? (
-                  <Text style={styles.empty}>No to-dos yet. Upar se add karo.</Text>
+                  <Text style={styles.empty}>No to-dos yet. Add one above.</Text>
                 ) : (
                   todos.map((item) => (
                     <TouchableOpacity
                       key={item.id}
                       style={styles.todoRow}
                       activeOpacity={0.75}
-                      onPress={async () => {
-                        try {
-                          const token = await AsyncStorage.getItem('khata_session');
-                          if (!token) return;
-                          await axios.delete(`${API_URL}/todos/${item.id}`, {
-                            headers: { Authorization: `Bearer ${token}` },
-                          });
-                          await fetchTodos();
-                        } catch (e) {
-                          console.log(e);
-                            Alert.alert(
-                              'Todo delete failed',
-                              String((e as any)?.response?.data?.error || (e as any)?.message || e),
-                            );
-                        }
-                      }}
                     >
                       <Circle size={22} color={theme.textMuted} />
                         <View style={{ flex: 1 }}>
@@ -430,8 +426,88 @@ export default function RecordsScreen(_props: Props) {
                                 ? String(item.created_at).slice(0, 10)
                                 : ''}
                           </Text>
+                          <View style={styles.todoStatusWrap}>
+                            <TouchableOpacity
+                              style={[
+                                styles.todoStatusBtn,
+                                (item.status ?? 'pending') === 'pending' && styles.todoStatusBtnOnPending,
+                              ]}
+                              onPress={async () => {
+                                try {
+                                  setTodoBusy(true);
+                                  const token = await AsyncStorage.getItem('khata_session');
+                                  if (!token) return;
+                                  await axios.patch(
+                                    `${API_URL}/todos/${item.id}/status`,
+                                    { status: 'pending' },
+                                    { headers: { Authorization: `Bearer ${token}` } },
+                                  );
+                                  await fetchTodos();
+                                } catch (e) {
+                                  Alert.alert(
+                                    'Status update failed',
+                                    String((e as any)?.response?.data?.error || (e as any)?.message || e),
+                                  );
+                                } finally {
+                                  setTodoBusy(false);
+                                }
+                              }}
+                            >
+                              <Text style={styles.todoStatusBtnTxt}>Pending</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.todoStatusBtn,
+                                (item.status ?? 'pending') === 'ongoing' && styles.todoStatusBtnOnOngoing,
+                              ]}
+                              onPress={async () => {
+                                try {
+                                  setTodoBusy(true);
+                                  const token = await AsyncStorage.getItem('khata_session');
+                                  if (!token) return;
+                                  await axios.patch(
+                                    `${API_URL}/todos/${item.id}/status`,
+                                    { status: 'ongoing' },
+                                    { headers: { Authorization: `Bearer ${token}` } },
+                                  );
+                                  await fetchTodos();
+                                } catch (e) {
+                                  Alert.alert(
+                                    'Status update failed',
+                                    String((e as any)?.response?.data?.error || (e as any)?.message || e),
+                                  );
+                                } finally {
+                                  setTodoBusy(false);
+                                }
+                              }}
+                            >
+                              <Text style={styles.todoStatusBtnTxt}>Ongoing</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.todoStatusBtn, styles.todoStatusBtnOnDone]}
+                              onPress={async () => {
+                                try {
+                                  setTodoBusy(true);
+                                  const token = await AsyncStorage.getItem('khata_session');
+                                  if (!token) return;
+                                  await axios.delete(`${API_URL}/todos/${item.id}`, {
+                                    headers: { Authorization: `Bearer ${token}` },
+                                  });
+                                  await fetchTodos();
+                                } catch (e) {
+                                  Alert.alert(
+                                    'Could not remove',
+                                    String((e as any)?.response?.data?.error || (e as any)?.message || e),
+                                  );
+                                } finally {
+                                  setTodoBusy(false);
+                                }
+                              }}
+                            >
+                              <Text style={styles.todoStatusBtnTxt}>Done</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                      <CheckCircle2 size={20} color={theme.black} />
                     </TouchableOpacity>
                   ))
                 )}
@@ -694,6 +770,28 @@ const styles = StyleSheet.create({
   },
   todoTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: theme.text },
   todoDate: { fontSize: 12, fontWeight: '700', color: theme.textMuted, marginTop: 4 },
+  todoStatusWrap: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  todoStatusBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  todoStatusBtnTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: theme.textMuted,
+  },
+  todoStatusBtnOnPending: { backgroundColor: 'rgba(59,130,246,0.15)', borderColor: '#3B82F6' },
+  todoStatusBtnOnOngoing: { backgroundColor: 'rgba(245,158,11,0.18)', borderColor: '#F59E0B' },
+  todoStatusBtnOnDone: { backgroundColor: 'rgba(16,185,129,0.18)', borderColor: '#10B981' },
   waCard: {
     marginBottom: 16,
     padding: 14,

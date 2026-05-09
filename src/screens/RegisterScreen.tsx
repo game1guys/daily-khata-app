@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,6 +9,7 @@ import { Mail, Lock, User, Phone, ArrowRight } from 'lucide-react-native';
 import { API_URL } from '../config/api';
 import { cacheMeFromLoginSession } from '../utils/profileCache';
 import { configureGoogleSignIn, getGoogleIdToken, isGoogleSignInCancelled } from '../auth/googleSignIn';
+import { AuthFormScroll } from '../components/KeyboardSafeViews';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Register'>;
@@ -79,17 +80,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        style={{ flex: 1 }}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-
+      <AuthFormScroll contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
             <Image source={require('../../assets/logo.png')} style={styles.topLogo} resizeMode="contain" />
             <Text style={styles.subtitle}>Provision a New Active Node.</Text>
@@ -181,9 +172,7 @@ export default function RegisterScreen({ navigation }: Props) {
               <Text style={styles.linkText}>Already Registered? <Text style={styles.linkTextBold}>Authenticate</Text></Text>
             </TouchableOpacity>
           </View>
-
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </AuthFormScroll>
     </SafeAreaView>
   );
 }
@@ -195,8 +184,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingTop: 40,
     paddingBottom: 120,
   },
   header: {

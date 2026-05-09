@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "761263871748",
+    "project_id": "game-guys-app",
+    "storage_bucket": "game-guys-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:761263871748:android:06fbaa404779547921a251",
+        "android_client_info": {
+          "package_name": "com.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB91wWD3bO8xccBzR91G-GelY-Bv-Ltu4Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:761263871748:android:98b380d623a85be621a251",
+        "android_client_info": {
+          "package_name": "com.gameguyzapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB91wWD3bO8xccBzR91G-GelY-Bv-Ltu4Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
